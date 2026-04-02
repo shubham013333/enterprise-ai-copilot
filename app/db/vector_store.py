@@ -4,7 +4,10 @@ VECTOR_DB = None
 
 def save_vector_store(vector_store):
     global VECTOR_DB
-    VECTOR_DB = vector_store
+    if VECTOR_DB is None:
+        VECTOR_DB = vector_store
+    else:
+        VECTOR_DB.merge_from(vector_store)
 
 def get_vector_store():
     return VECTOR_DB
