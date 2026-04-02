@@ -6,4 +6,7 @@ faiss-cpu
 pypdf
 tiktoken
 python-dotenv
-
+python-multipart
+langchain-community
+langchain-openai
+langchain-text-splitters
