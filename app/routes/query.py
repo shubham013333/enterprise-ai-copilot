@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.db.vector_store import get_vector_store
 from langchain_openai import ChatOpenAI
+from app.services.chat_memory import add_to_memory, get_memory
 
 router = APIRouter()
 
@@ -17,11 +18,38 @@ def query(data: dict):
 
     context = "\n".join([doc.page_content for doc in docs])
 
-    llm = ChatOpenAI()
+    memory = get_memory()
+    history_text = "\n".join([
+        f"User: {m.get('user', '')}\nAI: {m.get('ai', '')}"
+        for m in memory
+    ])
 
-    response = llm.invoke(
-        f"Answer based on context:\n{context}\n\nQuestion: {question}"
-    )
+    llm = ChatOpenAI(model="gpt-3.5-turbo")
+
+    prompt = f"""
+You are a professional AI assistant.
+
+Rules:
+- Answer ONLY from context
+- If not in context → say "I don't know"
+- Be concise and clear
+- Use bullet points if needed
+
+Conversation history:
+{history_text}
+
+Context:
+{context}
+
+User Question:
+{question}
+
+Answer clearly and based on context.
+"""
+
+    response = llm.invoke(prompt)
+
+    add_to_memory(question, response.content)
 
     return {
         "answer": response.content,
