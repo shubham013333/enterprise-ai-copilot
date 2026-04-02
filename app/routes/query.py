@@ -2,6 +2,8 @@ from fastapi import APIRouter
 from app.db.vector_store import get_vector_store
 from langchain_openai import ChatOpenAI
 from app.services.chat_memory import add_to_memory, get_memory
+from app.services.reranker import rerank
+
 
 router = APIRouter()
 
@@ -14,7 +16,9 @@ def query(data: dict):
     if not db:
         return {"error": "No documents uploaded yet"}
 
-    docs = db.similarity_search(question, k=3)
+    docs = db.similarity_search(question, k=15)
+
+    docs = rerank(question, docs)[:5] #rerank and take top 3
 
     context = "\n".join([doc.page_content for doc in docs])
 
@@ -27,13 +31,14 @@ def query(data: dict):
     llm = ChatOpenAI(model="gpt-3.5-turbo")
 
     prompt = f"""
-You are a professional AI assistant.
+You are a strict AI assistant.
 
 Rules:
-- Answer ONLY from context
-- If not in context → say "I don't know"
-- Be concise and clear
-- Use bullet points if needed
+- Answer ONLY using the provided context
+- DO NOT say you don't have access
+- DO NOT use outside knowledge
+- If answer not found → say "Not found in document"
+- Be precise and factual
 
 Conversation history:
 {history_text}
