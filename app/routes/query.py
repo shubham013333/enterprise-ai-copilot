@@ -4,8 +4,12 @@ from langchain_openai import ChatOpenAI
 from app.services.chat_memory import add_to_memory, get_memory
 from app.services.reranker import rerank
 from app.services.bm25 import bm25_search
+from app.services.query_rewriter import rewrite_query
 
 router = APIRouter()
+
+llm = ChatOpenAI(model="gpt-3.5-turbo")
+
 
 @router.post("/query")
 def query(data: dict):
@@ -16,16 +20,20 @@ def query(data: dict):
     if not db:
         return {"error": "No documents uploaded yet"}
 
-    # Vector search
-    vector_docs = db.similarity_search(question, k=10)
+    #  QUERY REWRITING
+    queries = rewrite_query(question)
+    queries.append(question)  # include original
 
-    #  BM25 search
-    bm25_docs = bm25_search(question, k=5)
+    all_docs = []
 
-    # Combine results
-    all_docs = vector_docs + bm25_docs
+    #  MULTI-QUERY RETRIEVAL
+    for q in queries:
+        vector_docs = db.similarity_search(q, k=5)
+        bm25_docs = bm25_search(q, k=3)
 
-    # Remove duplicates (stable way)
+        all_docs.extend(vector_docs + bm25_docs)
+
+    #  REMOVE DUPLICATES
     seen = set()
     unique_docs = []
 
@@ -34,23 +42,20 @@ def query(data: dict):
             seen.add(doc.page_content)
             unique_docs.append(doc)
 
-    #  Rerank (limit input size for performance)
+    #  RERANK
     docs = rerank(question, unique_docs[:15])[:5]
 
-    # Build context from BEST docs
+    #  CONTEXT
     context = "\n".join([doc.page_content for doc in docs])
 
-    #  Memory
+    #  MEMORY
     memory = get_memory()
     history_text = "\n".join([
         f"User: {m.get('user', '')}\nAI: {m.get('ai', '')}"
         for m in memory
     ])
 
-    # LLM
-    llm = ChatOpenAI(model="gpt-3.5-turbo")
-
-    # Strong RAG Prompt
+    #  PROMPT
     prompt = f"""
 You are a strict AI assistant.
 
@@ -58,8 +63,7 @@ Rules:
 - Answer ONLY using the provided context
 - DO NOT use outside knowledge
 - If answer not found → say "Not found in document"
-- Be precise and factual
-- Keep answers concise
+- Be precise and concise
 
 Conversation history:
 {history_text}
@@ -75,7 +79,7 @@ Answer:
 
     response = llm.invoke(prompt)
 
-    # 💾 Save memory
+    # 💾 SAVE MEMORY
     add_to_memory(question, response.content)
 
     return {
