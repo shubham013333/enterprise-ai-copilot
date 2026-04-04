@@ -1,14 +1,19 @@
 from fastapi import APIRouter
 from app.db.vector_store import get_vector_store
 from langchain_openai import ChatOpenAI
+from app.core.config import OPENAI_API_KEY
 from app.services.chat_memory import add_to_memory, get_memory
 from app.services.reranker import rerank
 from app.services.bm25 import bm25_search
 from app.services.query_rewriter import rewrite_query
+from app.services.multihop import decompose_question
 
 router = APIRouter()
 
-llm = ChatOpenAI(model="gpt-3.5-turbo")
+llm = ChatOpenAI(
+    model="gpt-3.5-turbo",
+    api_key=OPENAI_API_KEY
+)
 
 
 @router.post("/query")
@@ -20,20 +25,33 @@ def query(data: dict):
     if not db:
         return {"error": "No documents uploaded yet"}
 
-    #  QUERY REWRITING
-    queries = rewrite_query(question)
-    queries.append(question)  # include original
+    # -------------------------------
+    # MULTI-HOP (controlled)
+    # -------------------------------
+    if len(question.split()) < 6:
+        sub_questions = [question]
+    else:
+        sub_questions = decompose_question(question)
+        sub_questions.append(question)
 
     all_docs = []
 
-    #  MULTI-QUERY RETRIEVAL
-    for q in queries:
-        vector_docs = db.similarity_search(q, k=5)
-        bm25_docs = bm25_search(q, k=3)
+    # -------------------------------
+    # MULTI-HOP + QUERY REWRITING
+    # -------------------------------
+    for sq in sub_questions:
+        queries = rewrite_query(sq)
+        queries.append(sq)
 
-        all_docs.extend(vector_docs + bm25_docs)
+        for q in queries:
+            vector_docs = db.similarity_search(q, k=4)
+            bm25_docs = bm25_search(q, k=2)
 
-    #  REMOVE DUPLICATES
+            all_docs.extend(vector_docs + bm25_docs)
+
+    # -------------------------------
+    # REMOVE DUPLICATES (stable)
+    # -------------------------------
     seen = set()
     unique_docs = []
 
@@ -42,20 +60,28 @@ def query(data: dict):
             seen.add(doc.page_content)
             unique_docs.append(doc)
 
-    #  RERANK
-    docs = rerank(question, unique_docs[:15])[:5]
+    # -------------------------------
+    # RERANK
+    # -------------------------------
+    docs = rerank(question, unique_docs[:20])[:5]
 
-    #  CONTEXT
+    # -------------------------------
+    # CONTEXT
+    # -------------------------------
     context = "\n".join([doc.page_content for doc in docs])
 
-    #  MEMORY
+    # -------------------------------
+    # MEMORY
+    # -------------------------------
     memory = get_memory()
     history_text = "\n".join([
         f"User: {m.get('user', '')}\nAI: {m.get('ai', '')}"
         for m in memory
     ])
 
-    #  PROMPT
+    # -------------------------------
+    # PROMPT
+    # -------------------------------
     prompt = f"""
 You are a strict AI assistant.
 
@@ -79,7 +105,9 @@ Answer:
 
     response = llm.invoke(prompt)
 
-    # 💾 SAVE MEMORY
+    # -------------------------------
+    # SAVE MEMORY
+    # -------------------------------
     add_to_memory(question, response.content)
 
     return {
