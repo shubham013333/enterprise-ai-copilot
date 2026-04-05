@@ -6,29 +6,23 @@ llm = ChatOpenAI(
     api_key=OPENAI_API_KEY
 )
 
+
 def decompose_question(question: str):
     prompt = f"""
-Break the question into 2-3 smaller sub-questions.
-
-Rules:
-- Keep them short
-- Make them searchable
-- Focus on factual parts
+Break the question into 2-3 smaller factual sub-questions.
 
 Question:
 {question}
 
-Return only bullet points.
+Return bullet points only.
 """
 
     response = llm.invoke(prompt)
 
     lines = response.content.split("\n")
 
-    sub_questions = [
+    return [
         q.strip("- ").strip()
         for q in lines
         if q.strip()
-    ]
-
-    return sub_questions[:3]
+    ][:3]

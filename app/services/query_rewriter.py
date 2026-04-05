@@ -6,19 +6,19 @@ llm = ChatOpenAI(
     api_key=OPENAI_API_KEY
 )
 
+
 def rewrite_query(query: str):
     prompt = f"""
-You are an expert search query optimizer.
+Rewrite the query into 3 improved search queries.
 
-Rewrite the user query into 3 different improved search queries:
 - Make them specific
 - Add keywords
 - Keep them short
 
-Original query:
+Query:
 {query}
 
-Return ONLY 3 queries as bullet points.
+Return as bullet points.
 """
 
     response = llm.invoke(prompt)
