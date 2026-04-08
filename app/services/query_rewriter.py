@@ -15,7 +15,7 @@ Rewrite the query into 3 improved search queries.
 - Add keywords
 - Keep them short
 
-Query:
+Query: 
 {query}
 
 Return as bullet points.
